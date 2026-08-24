@@ -1,0 +1,7 @@
+build/
+.lock-waf*
+_tmp/
+*.pyc
+.DS_Store
+node_modules/
+tools/bsc5-short.json

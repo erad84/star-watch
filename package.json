@@ -1,0 +1,53 @@
+{
+  "name": "star-watch",
+  "author": "Mark Williams",
+  "version": "1.0.0",
+  "keywords": [
+    "pebble-app"
+  ],
+  "private": true,
+  "dependencies": {
+    "geomagnetism": "^0.2.0"
+  },
+  "pebble": {
+    "displayName": "Star Watch",
+    "uuid": "c3a91e47-6b2d-4f08-9e15-7a84d0c2b196",
+    "sdkVersion": "3",
+    "enableMultiJS": true,
+    "targetPlatforms": [
+      "emery",
+      "flint",
+      "gabbro"
+    ],
+    "watchapp": {
+      "watchface": false
+    },
+    "capabilities": [
+      "location"
+    ],
+    "messageKeys": {
+      "Request": 1,
+      "Lat": 2,
+      "Lon": 3,
+      "Declination": 4,
+      "Planets": 5,
+      "HasGps": 6,
+      "Dwarfs": 7,
+      "Asteroids": 8,
+      "ISS": 9,
+      "TrackISS": 10,
+      "ISS_TLE": 11,
+      "GpsAcc": 12
+    },
+    "resources": {
+      "media": [
+        {
+          "menuIcon": true,
+          "type": "png",
+          "name": "IMAGE_MENU_ICON",
+          "file": "images/menu_icon.png"
+        }
+      ]
+    }
+  }
+}
