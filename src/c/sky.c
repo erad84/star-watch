@@ -2,7 +2,7 @@
 #include "catalog.h"
 #include "starwatch.h"
 
-#define SKY_MAX_STARS 904
+#define SKY_MAX_STARS CATALOG_STAR_COUNT
 #define J2000_UNIX 946728000
 /* tan(25°) for 50° FOV */
 #define TAN_HALF_FOV 0.46630765815f
@@ -38,7 +38,7 @@ static bool s_look_ready;
 static float s_sin_lat;
 static float s_cos_lat = 1.0f;
 static int16_t s_star_az[SKY_MAX_STARS];
-static int16_t s_star_alt[SKY_MAX_STARS];
+static int8_t s_star_alt[SKY_MAX_STARS];
 #ifndef PBL_PLATFORM_FLINT
 static Vec3i s_star_enu[SKY_MAX_STARS];
 #endif
@@ -289,7 +289,7 @@ void sky_refresh_stars(void) {
     float alt;
     horiz_from_equatorial(catalog_ra_deg(s), catalog_dec_deg(s), &az, &alt);
     s_star_az[i] = (int16_t)(az + 0.5f);
-    s_star_alt[i] = (int16_t)(alt + (alt >= 0.0f ? 0.5f : -0.5f));
+    s_star_alt[i] = (int8_t)(alt + (alt >= 0.0f ? 0.5f : -0.5f));
 #ifndef PBL_PLATFORM_FLINT
     s_star_enu[i] = pack_vec(enu_from_horiz(az, alt));
 #endif
@@ -310,9 +310,15 @@ static bool project_vec(Vec3 obj, int16_t *px, int16_t *py) {
   y = dot3(obj, s_up);
   sx = ((float)s_bounds.w * 0.5f) + (x / z) * s_focal;
   sy = ((float)s_bounds.h * 0.5f) - (y / z) * s_focal;
-  if (sx < -20.0f || sy < -20.0f ||
-      sx > (float)s_bounds.w + 20.0f || sy > (float)s_bounds.h + 20.0f) {
-    return false;
+  if (sx > 32766.0f) {
+    sx = 32766.0f;
+  } else if (sx < -32767.0f) {
+    sx = -32767.0f;
+  }
+  if (sy > 32766.0f) {
+    sy = 32766.0f;
+  } else if (sy < -32767.0f) {
+    sy = -32767.0f;
   }
   *px = (int16_t)(sx + 0.5f);
   *py = (int16_t)(sy + 0.5f);
@@ -378,6 +384,26 @@ bool sky_horizon_point(int i, int16_t *px, int16_t *py) {
     return false;
   }
   return project_vec(unpack_vec(s_horizon[i]), px, py);
+}
+
+bool sky_ecliptic_point(int i, int16_t *px, int16_t *py) {
+  float az;
+  float alt;
+  float c;
+  float s;
+  Vec3 u;
+  Vec3 v;
+  if (i < 0 || i > SKY_HORIZON_STEPS) {
+    return false;
+  }
+  horiz_from_equatorial(0.0f, 0.0f, &az, &alt);
+  u = enu_from_horiz(az, alt);
+  horiz_from_equatorial(90.0f, 23.44f, &az, &alt);
+  v = enu_from_horiz(az, alt);
+  c = lookup_cos((360.0f * (float)i) / (float)SKY_HORIZON_STEPS);
+  s = lookup_sin((360.0f * (float)i) / (float)SKY_HORIZON_STEPS);
+  return project_vec(norm3(vec3(u.e * c + v.e * s, u.n * c + v.n * s, u.u * c + v.u * s)),
+                     px, py);
 }
 
 int16_t sky_star_alt_deg(int index) {

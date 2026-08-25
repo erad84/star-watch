@@ -5,6 +5,7 @@
 #include "catalog.h"
 #include "constellation.h"
 #include "deepsky.h"
+#include "lagrange.h"
 #include "starwatch.h"
 
 enum {
@@ -18,7 +19,8 @@ enum {
   LIST_CLUSTER,
   LIST_GALAXY,
   LIST_NEBULA,
-  LIST_SAT
+  LIST_SAT,
+  LIST_LAGRANGE
 };
 
 static const uint8_t SOLAR_DIST[] = {
@@ -31,11 +33,13 @@ static const uint8_t SOLAR_DIST[] = {
 static Window *s_root;
 static Window *s_named;
 static Window *s_families;
+static Window *s_made;
 static Window *s_list;
 static Window *s_settings;
 static MenuLayer *s_root_menu;
 static MenuLayer *s_named_menu;
 static MenuLayer *s_families_menu;
+static MenuLayer *s_made_menu;
 static MenuLayer *s_list_menu;
 static MenuLayer *s_settings_menu;
 static int s_list_kind;
@@ -51,6 +55,9 @@ static int s_scroll_users;
 static void close_menus(void) {
   if (s_list && window_stack_contains_window(s_list)) {
     window_stack_remove(s_list, false);
+  }
+  if (s_made && window_stack_contains_window(s_made)) {
+    window_stack_remove(s_made, false);
   }
   if (s_families && window_stack_contains_window(s_families)) {
     window_stack_remove(s_families, false);
@@ -139,6 +146,9 @@ static void scroll_tick(void *context) {
   }
   if (s_families_menu) {
     layer_mark_dirty(menu_layer_get_layer(s_families_menu));
+  }
+  if (s_made_menu) {
+    layer_mark_dirty(menu_layer_get_layer(s_made_menu));
   }
 }
 
@@ -293,7 +303,11 @@ static uint16_t root_rows(MenuLayer *layer, uint16_t section, void *ctx) {
   (void)layer;
   (void)section;
   (void)ctx;
+#if APP_HAS_LOOK_SENSORS
   return 4;
+#else
+  return 3;
+#endif
 }
 
 static void root_header(GContext *ctx, const Layer *cell_layer, uint16_t section, void *callback_context) {
@@ -308,11 +322,15 @@ static void root_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, v
     draw_scroll_title(ctx, cell_layer, "Object Targeting", 0);
   } else if (index->row == 1) {
     draw_scroll_title(ctx, cell_layer, "Settings", 0);
+#if APP_HAS_LOOK_SENSORS
   } else if (index->row == 2) {
     snprintf(s_title_buf, sizeof(s_title_buf), "Compass %u%%",
              (unsigned)g_app.compass_pct);
     draw_scroll_title(ctx, cell_layer, s_title_buf, 0);
   } else {
+#else
+  } else {
+#endif
     snprintf(s_title_buf, sizeof(s_title_buf), "GPS %u%%",
              (unsigned)g_app.gps_pct);
     draw_scroll_title(ctx, cell_layer, s_title_buf, 0);
@@ -330,23 +348,35 @@ static void root_select(MenuLayer *layer, MenuIndex *index, void *ctx) {
     window_stack_push(s_settings, true);
     return;
   }
+#if APP_HAS_LOOK_SENSORS
   if (index->row == 2) {
     app_open_calibration();
   }
+#endif
 }
 
-#define SETTINGS_COUNT 16
+#if APP_TOUCH_SETTING
+#define SETTINGS_COUNT 20
+#else
+#define SETTINGS_COUNT 19
+#endif
 
 static const char *const SETTING_TITLES[SETTINGS_COUNT] = {
+#if APP_TOUCH_SETTING
+  "Touch mode",
+#endif
   "Cardinals",
   "Heading",
   "Below horizon",
+  "Ecliptic",
   "Sun",
   "Moon",
   "Planets",
   "Bright stars",
   "Faint stars",
-  "Satellites",
+  "Man made",
+  "GPS",
+  "Lagrange points",
   "Dwarf planets",
   "Asteroids",
   "Bright clusters",
@@ -357,30 +387,43 @@ static const char *const SETTING_TITLES[SETTINGS_COUNT] = {
 };
 
 static const uint32_t SETTING_KEYS[SETTINGS_COUNT] = {
-  PERSIST_CARDINALS, PERSIST_HEADING, PERSIST_BELOW, PERSIST_SUN,
+#if APP_TOUCH_SETTING
+  PERSIST_TOUCH,
+#endif
+  PERSIST_CARDINALS, PERSIST_HEADING, PERSIST_BELOW, PERSIST_ECLIPTIC, PERSIST_SUN,
   PERSIST_MOON, PERSIST_PLANETS, PERSIST_BRIGHT, PERSIST_FAINT,
-  PERSIST_SATS, PERSIST_DWARFS, PERSIST_ASTEROIDS, PERSIST_CLUSTERS,
-  PERSIST_GALAXIES, PERSIST_NEBULAE, PERSIST_CONSTELLS, PERSIST_ASTERISMS
+  PERSIST_SATS, PERSIST_GPS, PERSIST_LAGRANGE, PERSIST_DWARFS, PERSIST_ASTEROIDS,
+  PERSIST_CLUSTERS, PERSIST_GALAXIES, PERSIST_NEBULAE, PERSIST_CONSTELLS,
+  PERSIST_ASTERISMS
 };
 
 static bool *setting_flag(int row) {
+#if APP_TOUCH_SETTING
+  if (row == 0) {
+    return &g_app.touch_look;
+  }
+  row -= 1;
+#endif
   switch (row) {
     case 0: return &g_app.show_cardinals;
     case 1: return &g_app.show_heading;
     case 2: return &g_app.show_below_horizon;
-    case 3: return &g_app.show_sun;
-    case 4: return &g_app.show_moon;
-    case 5: return &g_app.show_planets;
-    case 6: return &g_app.show_bright_stars;
-    case 7: return &g_app.show_faint_stars;
-    case 8: return &g_app.show_sats;
-    case 9: return &g_app.show_dwarfs;
-    case 10: return &g_app.show_asteroids;
-    case 11: return &g_app.show_clusters;
-    case 12: return &g_app.show_galaxies;
-    case 13: return &g_app.show_nebulae;
-    case 14: return &g_app.show_constellations;
-    case 15: return &g_app.show_asterisms;
+    case 3: return &g_app.show_ecliptic;
+    case 4: return &g_app.show_sun;
+    case 5: return &g_app.show_moon;
+    case 6: return &g_app.show_planets;
+    case 7: return &g_app.show_bright_stars;
+    case 8: return &g_app.show_faint_stars;
+    case 9: return &g_app.show_sats;
+    case 10: return &g_app.show_gps;
+    case 11: return &g_app.show_lagrange;
+    case 12: return &g_app.show_dwarfs;
+    case 13: return &g_app.show_asteroids;
+    case 14: return &g_app.show_clusters;
+    case 15: return &g_app.show_galaxies;
+    case 16: return &g_app.show_nebulae;
+    case 17: return &g_app.show_constellations;
+    case 18: return &g_app.show_asterisms;
     default: return NULL;
   }
 }
@@ -421,6 +464,11 @@ static void settings_select(MenuLayer *layer, MenuIndex *index, void *ctx) {
   }
   *flag = !*flag;
   persist_flag(SETTING_KEYS[index->row], *flag);
+#if APP_TOUCH_SETTING
+  if (flag == &g_app.touch_look) {
+    app_set_touch_look(*flag);
+  }
+#endif
   menu_layer_reload_data(layer);
 }
 
@@ -428,7 +476,7 @@ static uint16_t named_rows(MenuLayer *layer, uint16_t section, void *ctx) {
   (void)layer;
   (void)section;
   (void)ctx;
-  return 11;
+  return 12;
 }
 
 static void named_header(GContext *ctx, const Layer *cell_layer, uint16_t section, void *callback_context) {
@@ -450,24 +498,28 @@ static void named_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, 
       snprintf(s_title_buf, sizeof(s_title_buf), "Asteroids - %d", ASTEROID_COUNT);
       break;
     case 3:
-      snprintf(s_title_buf, sizeof(s_title_buf), "Satellites - %d", SAT_COUNT);
+      snprintf(s_title_buf, sizeof(s_title_buf), "Lagrange points - %d",
+               lagrange_count());
       break;
     case 4:
-      snprintf(s_title_buf, sizeof(s_title_buf), "Bright Stars - %d", catalog_bright_count());
+      snprintf(s_title_buf, sizeof(s_title_buf), "Man made - %d", sat_object_count());
       break;
     case 5:
-      snprintf(s_title_buf, sizeof(s_title_buf), "Faint Stars - %d", catalog_faint_count());
+      snprintf(s_title_buf, sizeof(s_title_buf), "Bright Stars - %d", catalog_bright_count());
       break;
     case 6:
-      snprintf(s_title_buf, sizeof(s_title_buf), "Bright Clusters - %d", cluster_count());
+      snprintf(s_title_buf, sizeof(s_title_buf), "Faint Stars - %d", catalog_faint_count());
       break;
     case 7:
-      snprintf(s_title_buf, sizeof(s_title_buf), "Galaxies - %d", galaxy_count());
+      snprintf(s_title_buf, sizeof(s_title_buf), "Bright Clusters - %d", cluster_count());
       break;
     case 8:
-      snprintf(s_title_buf, sizeof(s_title_buf), "Nebulae - %d", nebula_count());
+      snprintf(s_title_buf, sizeof(s_title_buf), "Galaxies - %d", galaxy_count());
       break;
     case 9:
+      snprintf(s_title_buf, sizeof(s_title_buf), "Nebulae - %d", nebula_count());
+      break;
+    case 10:
       snprintf(s_title_buf, sizeof(s_title_buf), "Constellations - %d", constellation_count());
       break;
     default:
@@ -491,24 +543,27 @@ static void named_select(MenuLayer *layer, MenuIndex *index, void *ctx) {
       s_list_kind = LIST_ASTEROID;
       break;
     case 3:
-      s_list_kind = LIST_SAT;
+      s_list_kind = LIST_LAGRANGE;
       break;
     case 4:
+      window_stack_push(s_made, true);
+      return;
+    case 5:
       s_list_kind = LIST_BRIGHT;
       break;
-    case 5:
+    case 6:
       s_list_kind = LIST_FAINT;
       break;
-    case 6:
+    case 7:
       s_list_kind = LIST_CLUSTER;
       break;
-    case 7:
+    case 8:
       s_list_kind = LIST_GALAXY;
       break;
-    case 8:
+    case 9:
       s_list_kind = LIST_NEBULA;
       break;
-    case 9:
+    case 10:
       window_stack_push(s_families, true);
       return;
     default:
@@ -548,6 +603,36 @@ static void family_select(MenuLayer *layer, MenuIndex *index, void *ctx) {
   window_stack_push(s_list, true);
 }
 
+static uint16_t made_rows(MenuLayer *layer, uint16_t section, void *ctx) {
+  (void)layer;
+  (void)section;
+  (void)ctx;
+  return (uint16_t)sat_category_count();
+}
+
+static void made_header(GContext *ctx, const Layer *cell_layer, uint16_t section, void *callback_context) {
+  (void)section;
+  (void)callback_context;
+  draw_header_text(ctx, cell_layer, "Man made");
+}
+
+static void made_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, void *callback_context) {
+  const char *name = sat_category_name((int)index->row);
+  (void)callback_context;
+  snprintf(s_title_buf, sizeof(s_title_buf), "%s - %d",
+           name ? name : "Man made",
+           sat_category_member_count((int)index->row));
+  draw_scroll_title(ctx, cell_layer, s_title_buf, 0);
+}
+
+static void made_select(MenuLayer *layer, MenuIndex *index, void *ctx) {
+  (void)layer;
+  (void)ctx;
+  s_list_kind = LIST_SAT;
+  s_list_family = (int)index->row;
+  window_stack_push(s_list, true);
+}
+
 static uint16_t list_rows(MenuLayer *layer, uint16_t section, void *ctx) {
   (void)layer;
   (void)section;
@@ -579,8 +664,11 @@ static uint16_t list_rows(MenuLayer *layer, uint16_t section, void *ctx) {
   if (s_list_kind == LIST_NEBULA) {
     return (uint16_t)nebula_count();
   }
+  if (s_list_kind == LIST_LAGRANGE) {
+    return (uint16_t)lagrange_count();
+  }
   if (s_list_kind == LIST_SAT) {
-    return (uint16_t)SAT_COUNT;
+    return (uint16_t)sat_category_member_count(s_list_family);
   }
   return (uint16_t)constellation_family_member_count(s_list_family);
 }
@@ -607,8 +695,10 @@ static void list_header(GContext *ctx, const Layer *cell_layer, uint16_t section
     title = "Galaxies";
   } else if (s_list_kind == LIST_NEBULA) {
     title = "Nebulae";
+  } else if (s_list_kind == LIST_LAGRANGE) {
+    title = "Lagrange points";
   } else if (s_list_kind == LIST_SAT) {
-    title = "Satellites";
+    title = sat_category_name(s_list_family);
   } else {
     title = constellation_family_name(s_list_family);
     if (!title) {
@@ -646,8 +736,11 @@ static void list_row(GContext *ctx, const Layer *cell_layer, MenuIndex *index, v
     title = galaxy_name((int)index->row);
   } else if (s_list_kind == LIST_NEBULA) {
     title = nebula_name((int)index->row);
+  } else if (s_list_kind == LIST_LAGRANGE) {
+    title = lagrange_name((int)index->row);
   } else if (s_list_kind == LIST_SAT) {
-    title = SAT_NAMES[index->row];
+    int sat_i = sat_category_member(s_list_family, (int)index->row);
+    title = sat_i >= 0 ? sat_name(sat_i) : "Sat";
   } else {
     title = constellation_name(constellation_family_member(s_list_family, (int)index->row));
     if (!title) {
@@ -678,8 +771,13 @@ static void list_select(MenuLayer *layer, MenuIndex *index, void *ctx) {
     choose_kind(TARGET_KIND_GALAXY, (int)index->row);
   } else if (s_list_kind == LIST_NEBULA) {
     choose_kind(TARGET_KIND_NEBULA, (int)index->row);
+  } else if (s_list_kind == LIST_LAGRANGE) {
+    choose_kind(TARGET_KIND_LAGRANGE, (int)index->row);
   } else if (s_list_kind == LIST_SAT) {
-    choose_kind(TARGET_KIND_SAT, (int)index->row);
+    int sat_i = sat_category_member(s_list_family, (int)index->row);
+    if (sat_i >= 0) {
+      choose_kind(TARGET_KIND_SAT, sat_i);
+    }
   } else {
     choose_constell(constellation_family_member(s_list_family, (int)index->row));
   }
@@ -764,6 +862,28 @@ static void families_unload(Window *window) {
   s_families_menu = NULL;
 }
 
+static void made_load(Window *window) {
+  static const MenuLayerCallbacks cbs = {
+    .get_num_sections = one_section,
+    .get_num_rows = made_rows,
+    .get_header_height = header_height,
+    .get_cell_height = cell_height,
+    .draw_header = made_header,
+    .draw_row = made_row,
+    .select_click = made_select,
+    .selection_changed = reset_scroll,
+  };
+  s_made_menu = make_menu(window, &cbs);
+  scroll_retain();
+}
+
+static void made_unload(Window *window) {
+  (void)window;
+  scroll_release();
+  menu_layer_destroy(s_made_menu);
+  s_made_menu = NULL;
+}
+
 static void list_load(Window *window) {
   static const MenuLayerCallbacks cbs = {
     .get_num_sections = one_section,
@@ -830,6 +950,13 @@ void menu_init(void) {
     .unload = families_unload,
   });
 
+  s_made = window_create();
+  window_set_background_color(s_made, GColorBlack);
+  window_set_window_handlers(s_made, (WindowHandlers) {
+    .load = made_load,
+    .unload = made_unload,
+  });
+
   s_list = window_create();
   window_set_background_color(s_list, GColorBlack);
   window_set_window_handlers(s_list, (WindowHandlers) {
@@ -867,6 +994,13 @@ void menu_deinit(void) {
     window_destroy(s_families);
     s_families = NULL;
   }
+  if (s_made) {
+    if (window_stack_contains_window(s_made)) {
+      window_stack_remove(s_made, false);
+    }
+    window_destroy(s_made);
+    s_made = NULL;
+  }
   if (s_named) {
     if (window_stack_contains_window(s_named)) {
       window_stack_remove(s_named, false);
@@ -893,5 +1027,14 @@ void menu_open(void) {
 void menu_refresh(void) {
   if (s_root_menu) {
     menu_layer_reload_data(s_root_menu);
+  }
+  if (s_named_menu) {
+    menu_layer_reload_data(s_named_menu);
+  }
+  if (s_made_menu) {
+    menu_layer_reload_data(s_made_menu);
+  }
+  if (s_list_menu) {
+    menu_layer_reload_data(s_list_menu);
   }
 }

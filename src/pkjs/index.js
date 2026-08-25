@@ -1,6 +1,6 @@
 var geomagnetism = require('geomagnetism');
 var ephemeris = require('./ephemeris');
-var iss = require('./iss');
+var sats = require('./sats');
 
 var sendQueue = [];
 var sending = false;
@@ -9,6 +9,7 @@ var lastLon = null;
 var lastHasGps = 0;
 var lastGpsAcc = null;
 var trackISS = false;
+var trackSatIdx = -1;
 var skyTimer = null;
 var dwarfOrbits = null;
 var asteroidOrbits = null;
@@ -86,6 +87,22 @@ function wrap36000(cdeg) {
   return v;
 }
 
+function packSatPairs(list) {
+  var bytes = [];
+  var i;
+  var n = sats.SAT_COUNT;
+  for (i = 0; i < n; i++) {
+    if (!list || !list[i]) {
+      pushI16(bytes, 0);
+      pushI16(bytes, 32767);
+      continue;
+    }
+    pushI16(bytes, wrap36000(list[i].ra * 100));
+    pushI16(bytes, list[i].dec * 100);
+  }
+  return bytes;
+}
+
 function packPairs(list) {
   var bytes = [];
   var i;
@@ -125,7 +142,6 @@ function sendSky(lat, lon, hasGps, accM) {
   }
   var now = new Date();
   var decl = magneticDeclination(lat, lon);
-  var issPos = iss.currentISS(now);
   var dict = {
     Lat: Math.round(lat * 1000),
     Lon: Math.round(lon * 1000),
@@ -133,17 +149,17 @@ function sendSky(lat, lon, hasGps, accM) {
     HasGps: hasGps ? 1 : 0,
     Planets: packPairs(ephemeris.allBodies(now)),
     Dwarfs: packPairs(ephemeris.dwarfBodies(now, dwarfOrbits)),
-    Asteroids: packPairs(ephemeris.asteroidBodies(now, asteroidOrbits))
+    Asteroids: packPairs(ephemeris.asteroidBodies(now, asteroidOrbits)),
+    Sats: packSatPairs(sats.currentAll(now))
   };
   if (hasGps && lastGpsAcc !== null && isFinite(lastGpsAcc)) {
     dict.GpsAcc = Math.round(lastGpsAcc);
   }
-  if (issPos) {
-    dict.ISS = packPairs([issPos]);
-  }
-  var tleBytes = iss.packTLE();
-  if (tleBytes) {
-    dict.ISS_TLE = tleBytes;
+  if (trackISS && trackSatIdx >= 0) {
+    var tleBytes = sats.packTLE(trackSatIdx);
+    if (tleBytes) {
+      dict.ISS_TLE = tleBytes;
+    }
   }
   send(dict);
 }
@@ -263,14 +279,14 @@ asteroidOrbits = loadOrbits('starWatchAsteroids');
 Pebble.addEventListener('ready', function () {
   console.log('Star Watch PKJS ready');
   requestLocation();
-  iss.fetchTLE(function () {
+  sats.refreshAll(function () {
     tickSky();
   });
   refreshOrbits();
   restartSkyTimer();
   setInterval(requestLocation, 60000);
   setInterval(function () {
-    iss.fetchTLE();
+    sats.refreshAll();
   }, 6 * 3600 * 1000);
 });
 
@@ -278,9 +294,14 @@ Pebble.addEventListener('appmessage', function (e) {
   var payload = e && e.payload ? e.payload : {};
   if (payload.TrackISS !== undefined && payload.TrackISS !== null) {
     trackISS = !!payload.TrackISS;
+    if (payload.TrackSat !== undefined && payload.TrackSat !== null) {
+      trackSatIdx = payload.TrackSat | 0;
+    } else {
+      trackSatIdx = trackISS ? 0 : -1;
+    }
     restartSkyTimer();
     if (trackISS) {
-      iss.fetchTLE(function () {
+      sats.refreshAll(function () {
         tickSky();
       });
     }

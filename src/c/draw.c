@@ -4,6 +4,7 @@
 #include "constellation.h"
 #include "deepsky.h"
 #include "iss.h"
+#include "lagrange.h"
 #include "sky.h"
 #include "starwatch.h"
 
@@ -393,19 +394,33 @@ static bool named_target(int16_t *px, int16_t *py, int *radius, const char **nam
                     px, py, radius, name, on_screen);
   }
   if (g_app.target_kind == TARGET_KIND_SAT) {
+    int id = (int)g_app.target_index;
     float az;
     float alt;
-    *name = SAT_NAMES[0];
+    if (id < 0 || id >= SAT_COUNT) {
+      return false;
+    }
+    *name = sat_name(id);
     *radius = 4;
-    if (iss_horiz(&az, &alt)) {
+    if (iss_ready_index(id) && iss_horiz(&az, &alt)) {
       sky_aim_from_horiz(az, alt, px, py, on_screen);
       return true;
     }
-    if (iss_ready()) {
+    return named_eq(g_app.sat_ra_deg[id], g_app.sat_dec_deg[id],
+                    sat_has_pos(id), 4, sat_name(id),
+                    px, py, radius, name, on_screen);
+  }
+  if (g_app.target_kind == TARGET_KIND_LAGRANGE) {
+    float ra;
+    float dec;
+    int id = (int)g_app.target_index;
+    if (id < 0 || id >= lagrange_count()) {
       return false;
     }
-    return named_eq(g_app.iss_ra_deg, g_app.iss_dec_deg,
-                    g_app.iss_valid, 4, SAT_NAMES[0],
+    lagrange_equatorial(id, &ra, &dec);
+    return named_eq(ra, dec, lagrange_ready(),
+                    leader_r(ang_to_r(lagrange_size_deg(id))),
+                    lagrange_name(id),
                     px, py, radius, name, on_screen);
   }
   if (g_app.target_kind == TARGET_KIND_CLUSTER) {
@@ -593,32 +608,33 @@ static const char *const HORIZON_DIRS[16] = {
   "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"
 };
 
-static void draw_horizon(GContext *ctx) {
+static void draw_sky_ring(GContext *ctx, bool (*point)(int, int16_t *, int16_t *)) {
   int16_t prev_x = 0;
   int16_t prev_y = 0;
   bool has_prev = false;
-  int k;
-  graphics_context_set_stroke_color(ctx, UI_MID);
-  graphics_context_set_stroke_width(ctx, 1);
-  graphics_context_set_text_color(ctx, GColorWhite);
-  for (int i = 0; i <= SKY_HORIZON_STEPS; i++) {
+  int i;
+  for (i = 0; i <= SKY_HORIZON_STEPS; i++) {
     int16_t px;
     int16_t py;
-    if (!sky_horizon_point(i, &px, &py)) {
+    if (!point(i, &px, &py)) {
       has_prev = false;
       continue;
     }
     if (has_prev) {
-      int dx = px - prev_x;
-      int dy = py - prev_y;
-      if (dx * dx + dy * dy < (s_screen_w / 2) * (s_screen_w / 2)) {
-        graphics_draw_line(ctx, GPoint(prev_x, prev_y), GPoint(px, py));
-      }
+      graphics_draw_line(ctx, GPoint(prev_x, prev_y), GPoint(px, py));
     }
     prev_x = px;
     prev_y = py;
     has_prev = true;
   }
+}
+
+static void draw_horizon(GContext *ctx) {
+  int k;
+  graphics_context_set_stroke_color(ctx, UI_MID);
+  graphics_context_set_stroke_width(ctx, 1);
+  graphics_context_set_text_color(ctx, GColorWhite);
+  draw_sky_ring(ctx, sky_horizon_point);
   if (!g_app.show_cardinals) {
     return;
   }
@@ -963,30 +979,59 @@ void draw_sky_update(Layer *layer, GContext *ctx) {
     }
   }
 
-  if (want_kind(TARGET_KIND_SAT, g_app.show_sats) && g_app.sky_mode == SKY_STARS) {
-    int16_t px;
-    int16_t py;
-    bool have = false;
-    float az;
-    float alt;
-    if (iss_horiz(&az, &alt)) {
-      if (g_app.show_below_horizon || alt >= 0.0f) {
-        have = sky_project_horiz(az, alt, &px, &py);
+  if (g_app.sky_mode == SKY_STARS &&
+      (g_app.show_sats || g_app.show_gps ||
+       (g_app.target_mode == TARGET_NAMED &&
+        g_app.target_kind == TARGET_KIND_SAT))) {
+    int i;
+    int target = (g_app.target_mode == TARGET_NAMED &&
+                  g_app.target_kind == TARGET_KIND_SAT) ?
+                 (int)g_app.target_index : -1;
+    for (i = 0; i < SAT_COUNT; i++) {
+      int16_t px;
+      int16_t py;
+      bool have = false;
+      bool gps = (i >= SAT_GPS_0);
+      bool shown = gps ? g_app.show_gps : g_app.show_sats;
+      float az;
+      float alt;
+      if (!shown && i != target) {
+        continue;
       }
-    } else if (!iss_ready() && g_app.iss_valid) {
-      have = plot_eq(g_app.iss_ra_deg, g_app.iss_dec_deg, &px, &py);
-    }
-    if (have) {
+      if (iss_ready_index(i) && iss_horiz(&az, &alt)) {
+        if (g_app.show_below_horizon || alt >= 0.0f) {
+          have = sky_project_horiz(az, alt, &px, &py);
+        }
+      } else if (sat_has_pos(i)) {
+        have = plot_eq(g_app.sat_ra_deg[i], g_app.sat_dec_deg[i], &px, &py);
+      }
+      if (!have) {
+        continue;
+      }
       draw_iss_mark(ctx, GPoint(px, py));
       if (px >= 0 && py >= 0 && px < bounds.size.w && py < bounds.size.h) {
-        note_nearest(center, GPoint(px, py), 4, SAT_NAMES[0],
+        note_nearest(center, GPoint(px, py), 4, sat_name(i),
                      &best_d2, &best_pt, &best_r, &best_name);
       }
     }
   }
 
+  if (g_app.sky_mode == SKY_STARS &&
+      want_kind(TARGET_KIND_LAGRANGE, g_app.show_lagrange) &&
+      lagrange_ready()) {
+    draw_dso_list(ctx, bounds, center, lagrange_count(), lagrange_equatorial,
+                  lagrange_name, lagrange_size_deg,
+                  PBL_IF_COLOR_ELSE(GColorYellow, GColorWhite),
+                  &best_d2, &best_pt, &best_r, &best_name);
+  }
+
   draw_constellations(ctx);
   draw_horizon(ctx);
+  if (g_app.show_ecliptic) {
+    graphics_context_set_stroke_color(ctx, PBL_IF_COLOR_ELSE(GColorBlue, GColorWhite));
+    graphics_context_set_stroke_width(ctx, 1);
+    draw_sky_ring(ctx, sky_ecliptic_point);
+  }
   draw_crosshair(ctx, center);
 
   if (g_app.show_heading) {
@@ -1018,7 +1063,7 @@ void draw_sky_update(Layer *layer, GContext *ctx) {
     draw_name_bar(ctx, bounds, best_name);
   }
 
-  if (!g_app.compass_ok) {
+  if (!g_app.touch_look && !g_app.compass_ok) {
     draw_overlay(ctx, bounds, "Wave watch in a figure-8");
   } else if (!g_app.has_gps) {
     draw_overlay(ctx, bounds, "Waiting for GPS...");

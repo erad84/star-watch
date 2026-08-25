@@ -23,6 +23,7 @@ typedef struct {
 } IssTle;
 
 static IssTle s_tle;
+static int s_tle_index;
 static float s_az_deg;
 static float s_alt_deg;
 static bool s_horiz_ok;
@@ -110,21 +111,38 @@ static uint16_t read_u16(const uint8_t *p) {
 }
 
 void iss_set_tle(const uint8_t *data, int length) {
+  int off = 0;
+  int index = 0;
   if (!data || length < 20) {
     return;
   }
-  s_tle.epoch_unix = read_i32(data);
-  s_tle.inc_deg = read_u16(data + 4) / 100.0f;
-  s_tle.raan_deg = read_u16(data + 6) / 100.0f;
-  s_tle.ecc = read_i32(data + 8) / 1000000.0f;
-  s_tle.argp_deg = read_u16(data + 12) / 100.0f;
-  s_tle.m0_deg = read_u16(data + 14) / 100.0f;
-  s_tle.n_revday = read_i32(data + 16) / 1000000.0f;
-  s_tle.valid = s_tle.n_revday > 1.0f && s_tle.n_revday < 20.0f;
+  if (length >= 22) {
+    index = (int)(data[0] | (data[1] << 8));
+    off = 2;
+    if (length - off < 20) {
+      return;
+    }
+  }
+  if (index < 0 || index >= SAT_COUNT) {
+    return;
+  }
+  s_tle_index = index;
+  s_tle.epoch_unix = read_i32(data + off);
+  s_tle.inc_deg = read_u16(data + off + 4) / 100.0f;
+  s_tle.raan_deg = read_u16(data + off + 6) / 100.0f;
+  s_tle.ecc = read_i32(data + off + 8) / 1000000.0f;
+  s_tle.argp_deg = read_u16(data + off + 12) / 100.0f;
+  s_tle.m0_deg = read_u16(data + off + 14) / 100.0f;
+  s_tle.n_revday = read_i32(data + off + 16) / 1000000.0f;
+  s_tle.valid = s_tle.n_revday > 1.8f && s_tle.n_revday < 17.0f;
 }
 
 bool iss_ready(void) {
   return s_tle.valid;
+}
+
+bool iss_ready_index(int index) {
+  return s_tle.valid && s_tle_index == index;
 }
 
 bool iss_horiz(float *az_deg, float *alt_deg) {

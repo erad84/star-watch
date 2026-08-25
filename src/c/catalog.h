@@ -1,5 +1,6 @@
 #pragma once
 
+#include "catalog_count.h"
 #include <pebble.h>
 #include <stdint.h>
 

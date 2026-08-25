@@ -1,7 +1,7 @@
 {
   "name": "star-watch",
   "author": "Mark Williams",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "keywords": [
     "pebble-app"
   ],
@@ -37,7 +37,9 @@
       "ISS": 9,
       "TrackISS": 10,
       "ISS_TLE": 11,
-      "GpsAcc": 12
+      "GpsAcc": 12,
+      "Sats": 13,
+      "TrackSat": 14
     },
     "resources": {
       "media": [
