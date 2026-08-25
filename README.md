@@ -27,32 +27,3 @@ Long names ping-pong in the name bar and in menus when they do not fit.
 Needs a paired phone for the first GPS fix and for planet / ISS updates. The Pebble 2 Duo build is tight on RAM (star direction cache omitted so the app can allocate menus); expect slightly heavier sky redraws on that watch.
 
 Other Pebbles (Classic, Time, Time Round, original Pebble 2) are not targeted: too little RAM, no compass, and/or a round 180×180 layout this app does not support.
-
-## Build (Windows)
-
-The Pebble SDK does not run natively on Windows. Use WSL Ubuntu:
-
-```bash
-# once
-sudo apt update && sudo apt install -y build-essential python3
-curl -LsSf https://astral.sh/uv/install.sh | sh
-uv tool install pebble-tool --python 3.13
-pebble sdk install latest
-
-cd "/mnt/e/Mark/webdev/Pebble watch/Star Watch"
-npm install
-pebble build
-pebble install --emulator emery
-```
-
-On a physical watch, enable Dev Connect in the Pebble phone app, then:
-
-```bash
-pebble install --cloudpebble
-```
-
-Regenerate the packed star catalog (optional):
-
-```bash
-python3 tools/gen_catalog.py
-```
