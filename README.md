@@ -29,3 +29,10 @@ Long names ping-pong in the name bar and in menus when they do not fit.
 Needs a paired phone for the first GPS fix and for planet / ISS updates. The Pebble 2 Duo build is tight on RAM (star direction cache omitted so the app can allocate menus); expect slightly heavier sky redraws on that watch.
 
 Other Pebbles (Classic, Time, Time Round, original Pebble 2) are not targeted: too little RAM, no compass, and/or a round 180×180 layout this app does not support. A touch-pan setting does not change that — only Time 2 and Round 2 have a touchscreen, and both are already supported. There is currently no shipping Pebble that has a touchscreen but no compass.
+
+## Build & ship (pebble-ci)
+
+Routine build/ship runs through GitHub Actions [`.github/workflows/pebble-build.yml`](.github/workflows/pebble-build.yml), which calls reusable [`erad84/pebble-ci@v1`](https://github.com/erad84/pebble-ci). CI uploads a `.pbw` artifact; optional CloudPebble install runs when `PEBBLE_FIREBASE_*` secrets are set and the phone is online.
+
+Prefer CI / `gh workflow run pebble-build` over a local `pebble build` for releases. Shared docs and issues: [erad84/pebble-ci](https://github.com/erad84/pebble-ci) ([README](https://github.com/erad84/pebble-ci#pebble-ci)).
+
